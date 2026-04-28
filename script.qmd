@@ -1,0 +1,427 @@
+---
+title: "Segmentação de Usuários de uma Plataforma de Streaming"
+author: 'Emanuel Franklin Passos Simões - 23.2.4009'
+format: pdf
+editor: visual
+---
+
+# Introdução
+
+A análise de agrupamentos são técnicas aplicadas com o objetivo de identificar e agregar objetos, a partir de suas próprias características (Joseph et al., 2009, p. 430).
+
+O presente trabalho consiste na realização de uma análise de agrupamentos para fazer uma análise dos usuários de uma plataforma de streaming, com o objetivo de verificar se há agrupamentos latentes na base de dados e identificá-los caso existam.
+
+# Materiais e métodos
+
+A base de dados [dados_streaming.csv](https://www.professortp.com.br/est014/dados/dados_streaming.csv) possui 560 obsevações, de modo que cada observação é um usuário ativo de uma mesma plataforma de streaming. A base contém 6 variáveis, que são:
+
+-   **idade**: Idade dos usuários em anos;
+
+-   **horas_semana**: Horas médias de consumo por semana;
+
+-   **dias_ativos**: Número médio de dias ativos por semana;
+
+-   **avaliacoes**: Número médio de avaliações feitas por mês;
+
+-   **tempo_assinatura**: Tempo de assinatura em meses;
+
+-   **valor_plano**: Valor mensal do plano.
+
+Os métodos que serão aplicados são a análise exploratória e análise de agrupamentos.
+
+# Resultados e discussão
+
+Este tópico apresenta a análise exploratória dos dados, a aplicação da análise de agrupamentos e uma breve discussão sobre cada etapa.
+
+```{r, include = FALSE}
+rm(list=ls())
+Sys.setlocale("LC_TIME", "pt_BR.UTF-8")
+```
+
+```{r}
+## Instalação e importação de pacotes ---------------------------------------
+
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  install.packages("pacman")
+}
+
+pacman::p_load(cluster, corrplot, factoextra, seriation, 
+               hopkins, RColorBrewer, skimr, tidyverse)
+```
+
+```{r}
+## Importação dos dados -----------------------------------------------------
+dados <- read.csv('tabelas/dados_streaming.csv')
+head(dados)
+```
+
+## Análise exploratória
+
+O tópico abrange um resumo dos dados com breves discussões, bem como a investigação de possíveis grupos de usuários.
+
+### Visão geral
+
+```{r}
+skim(dados)
+```
+
+Com excessão da variável idade, que possui média dispersão (CV = 0,25), todas as outras possuem alta dispersão, segundo o critério do coeficiente de variação maior do que 30%. Isso sugere heterogeneidade entre os usuários, tanto na questão de atividade na plataforma, como também no tempo e valor da assinatura.
+
+Já os histogramas sugerem haver diferentes perfis de usuários:
+
+-   Quanto à idade, observa-se que a maioria são jovens e adultos;
+
+-   A frequência de usuários com pouco consumo médio semanal, em horas, é maior do que a frequência do consumo moderado e alto;
+
+-   A distribuição dos dias ativos por semana é quase uniforme, com destaque para a frequência da atividade moderada ser mais alta e a frequência da atividade altíssima ser mais baixa;
+
+-   Quanto às avaliações, observa-se que a frequência é majoritariamente baixa;
+
+-   A frequência de usuários com pouco tempo de assinatura, em meses, é maior e sua distribuição decresse quase que uniformemente;
+
+-   Há muitos usuários cadastrados nos planos mais baratos e identificou-se um outro grupo, menor, composto por usuários cadastrados em planos mais caros.
+
+Vale analisar se há grupos latentes, visto que há heterogeneidade de observações e os próprios dados sugerem divisões de grupos marginais.
+
+### Avaliação de outliers
+
+```{r}
+dados_long <- dados %>%
+  pivot_longer(cols = everything(),
+               names_to = "variavel",
+               values_to = "valor")
+
+
+ggplot(dados_long, aes(x = variavel, y = valor, fill = variavel)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Pastel1")
+```
+
+A partir do método de identificação de outliers a partir do boxplot, observou-se a presença de alguns outliers nas variáveis avaliacoes, horas_semana e valor_plano. Como verificou-se que a quantidade de outliers é bem inferior a quantidade de observações, optou-se por mantê-los.
+
+### Gráfico de cores com matriz de correlação
+
+```{r}
+cor_mat <- dados %>%
+  cor()
+
+corrplot(
+  cor_mat,
+  method = "color",
+  addCoef.col = "black",
+  tl.col = "black",
+  tl.srt = 45
+)
+```
+
+Com exceção da variável idade, todas as outras possuem correlações moderadas entre si.
+
+### Padronização dos dados
+
+Será utilizada a análise de agrupamentos, um método sensível à escala dos dados por ser baseado na distância. Por isso, optou-se por padronizar os dados na métrica z-score. Utilizou-se a distância euclidiana por preservar a estrutura geométrica dos dados, o que dá sentido à interpretação de métodos aplicados nas próximas etapas.
+
+```{r}
+X <- scale(dados)
+
+# Distância Euclidiana 
+D <- dist(X, method = "euclidean")
+```
+
+## Avaliação da tendência de agrupamento
+
+### Estatística de Hopkins
+
+A estatística de Hopkins avalia se os dados possuem tendência de agrupamento. Se H \~ 0.05, sugere-se aleatoriedade (sem clusters). Se H for alto, algo superior a 0.70, por exemplo, sugere-se forte estrutura de agrupamento. Como essa estatística é sensível ao tamanho amostral e ao nº de pontos amostrados, será utilizado 10% do número de pontos amostrados para a análise.
+
+```{r}
+set.seed(12345)
+m <- floor(0.1 * nrow(X))
+hop <- hopkins(X, m = m)
+hop
+```
+
+Como foi obtido um valor alto, verifica-se que há um forte indício de haver agrupamentos latentes.
+
+### Método visual (VAT)
+
+```{r}
+VAT(D)
+```
+
+Observa-se a presença de blocos bem definidos na estrutura, separados por regiões de menor similaridade. Logo, há mais uma evidência da existência de uma estrutura de agrupamento dos dados.
+
+### PCA para visualização exploratória
+
+```{r}
+pca <- prcomp(dados, scale. = TRUE)
+pca_df <- as.data.frame(pca$x[, 1:2])
+names(pca_df) <- c("PC1","PC2")
+
+ggplot(pca_df, aes(PC1, PC2)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "PCA (2 componentes) - visão inicial da estrutura") +
+  theme_minimal()
+```
+
+A partir da análise de componentes principais com dois componentes, percebe-se que há indícios da formação de três grupos bem definidos. Portanto, sugere-se que há uma estrutura latente que separa as observações.
+
+Visto que há três métodos que sugerem fortemente a existência de grupos latentes, optou-se por continuar a análise e partir para os métodos hierárquicos.
+
+## Métodos hierárquicos
+
+### Correlação cofenética
+
+Nesse procedimento foi testado os métodos single, complete, centroid, average e ward.D2 a partir do critério de correlação cofenética.
+
+```{r}
+metodos <- c("single", "complete", "centroid", "average", "ward.D2")
+
+hcl_list <- lapply(metodos, function(met) hclust(D, method = met))
+names(hcl_list) <- metodos
+
+
+# Correlação cofenética
+coph_corr <- sapply(hcl_list, function(hc) {
+  cor(D, cophenetic(hc))
+})
+coph_corr
+
+melhor_met <- names(which.max(coph_corr))
+```
+
+O método com a maior correlação cofenética é o average, portanto será o escolhido para fazer o dendrograma, pois ele será mais fiel às distâncias.
+
+### Dendrograma e escolha do número de clusters
+
+```{r}
+hc_best <- hcl_list[[melhor_met]]
+
+# Visualização de alta qualidade
+fviz_dend(hc_best, k = 3, # Número de grupos
+          cex = 0.5, # Tamanho da label
+          k_colors = c("#2E9FDF", "#ed2602", "#E7B800"),
+          color_labels_by_k = TRUE, # Colorir labels
+          rect = TRUE, # Adicionar retângulo
+          main = "Dendrograma fviz_dend")
+```
+
+```{r}
+cluster_hc <- cutree(hc_best, k = 3)
+table(cluster_hc)
+```
+
+A partir do dendrograma, observa-se a presença de 3 agrupamentos bem definidos, de modo que há um grupo majoritário (cor vermelha) e dois grupos menores com tamanhos parecidos (cores azul e amarelo).
+
+### Validação por silhueta
+
+```{r}
+# Silhueta para a solução hierárquica
+sil_hc <- silhouette(cluster_hc, D)
+
+# Silhueta média global
+mean_sil <- mean(sil_hc[, "sil_width"])
+mean_sil
+```
+
+```{r}
+fviz_silhouette(sil_hc) +
+  labs(
+    title = "Silhueta – Clustering hierárquico (complete, k = 3)",
+    subtitle = paste("Silhueta média =", round(mean_sil, 3))
+  )
+```
+
+```{r}
+sil_df <- as.data.frame(sil_hc)
+sil_df$cluster <- factor(cluster_hc)
+
+sil_df %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    sil_media = mean(sil_width),
+    sil_min = min(sil_width),
+    sil_max = max(sil_width)
+  )
+```
+
+Para avaliar a qualidade da solução hierárquica, foi utilizado o método da silhueta, que avalia o quão bem cada observação está alocada no seu grupo. Obteve-se o valor médio de 0.47, o que indica uma alocação moderada. Percebe-se também que o grupo majoritário possui uma silhueta média superior as demais (0.55), enquanto o grupo minoritário apresentou silhueta média inferior as demais (0.35), porém ainda é considerado uma alocação moderada.
+
+### Avaliando outros valores de k
+
+```{r}
+ks <- c(2, 3, 4, 5)
+
+sil_results <- lapply(ks, function(k) {
+  cl <- cutree(hc_best, k = k)
+  sil <- silhouette(cl, D)
+  
+  tibble(
+    k = k,
+    sil_media = mean(sil[, "sil_width"]),
+    sil_min = min(sil[, "sil_width"]),
+    sil_max = max(sil[, "sil_width"])
+  )
+})
+
+sil_results <- bind_rows(sil_results)
+sil_results
+```
+
+```{r}
+par(mfrow = c(1,4))
+for (k in ks) {
+  cl <- cutree(hc_best, k = k)
+  sil <- silhouette(cl, D)
+  plot(
+    sil,
+    main = paste("Silhueta – complete (k =", k, ")"),
+    col = 1:k,
+    border = NA
+  )
+}
+par(mfrow = c(1,1))
+```
+
+Ao verificar a silhueta para diferentes quantidades de grupos, no caso 2, 4, e 5 grupos, observou-se que o valor da silhueta média é inferior ao proposto (3 grupos), portanto, adotou-se a solução com 3 grupos como partição final dos dados.
+
+### Análise descritiva e leitura substantiva
+
+```{r}
+# Rótulos hierárquicos com k = 3
+cluster_hc_k3 <- cutree(hc_best, k = 3)
+
+dados_hc3 <- dados %>%
+  mutate(cluster = factor(cluster_hc_k3))
+
+descr_hc3 <- dados_hc3 %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    idade_media = mean(idade),
+    horas_semana_media = mean(horas_semana),
+    media_dias_ativos = mean(dias_ativos),
+    avaliacoes_medias = mean(avaliacoes),
+    tempo_assinatura_medio = mean(tempo_assinatura),
+    valor_plano_medio = mean(valor_plano),
+    .groups = "drop"
+  )
+
+descr_hc3
+```
+
+**Cluster 1: "Usuários adultos com pouco consumo e planos baratos" (300 usuários, \~54%)**
+
+Padrão observado:
+
+-   idade média de 27 anos;
+
+-   consumo de em média 6.23 horas semanais;
+
+-   média de 2.17 dias ativos por semana;
+
+-   média de 0.63 avaliações médias;
+
+-   tempo médio de assinatura de 9.67 meses;
+
+-   valor médio do plano de 35.31 reais.
+
+Leitura substantiva:
+
+-   Usuários adultos, com menor consumo de streaming, baixo tempo de assinatura e com planos mais baratos.
+
+**Cluster 2: "Usuários adultos fieis com alto consumo e planos mais caros" (140 usuários, \~25%)**
+
+Padrão observado:
+
+-   idade média de 29 anos;
+
+-   consumo de em média 21.91 horas semanais;
+
+-   média de 5.48 dias ativos por semana;
+
+-   média de 3.51 avaliações médias;
+
+-   tempo médio de assinatura de 28.5 meses;
+
+-   valor médio do plano de 65.81 reais.
+
+Leitura substantiva:
+
+-   Usuários adultos, com alto consumo de streaming, alto tempo de assinatura e planos mais caros.
+
+**Cluster 3: "Usuários mais velhos fieis com médio consumo e planos moderados" (120 usuários, \~21%)**
+
+Padrão observado:
+
+-   idade média de 41 anos;
+
+-   consumo de em média 13.44 horas semanais;
+
+-   média de 4.1 dias ativos por semana;
+
+-   média de 1.96 avaliações médias;
+
+-   tempo médio de assinatura de 28.85 meses;
+
+-   valor médio do plano de 39,28 reais.
+
+Leitura substantiva:
+
+-   Usuários adultos mais velhos, com consumo moderado de streaming, alto tempo de assinatura e planos com preços moderados.
+
+## K-médias como método confirmatório
+
+```{r}
+# K-médias depende de inicialização. Use nstart alto para estabilidade.
+set.seed(12345)
+km <- kmeans(X, centers = 3, nstart = 50)
+
+cluster_km <- km$cluster
+
+table(cluster_km)
+```
+
+```{r}
+cat("\nInércia total (tot.withinss):", round(km$tot.withinss, 2), "\n")
+```
+
+```{r}
+# Dados com rótulos do K-médias
+dados_km <- dados %>%
+  mutate(cluster = factor(cluster_km))
+
+# Estatísticas descritivas por cluster
+descr_km <- dados_km %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    idade_media = mean(idade),
+    horas_semana_media = mean(horas_semana),
+    media_dias_ativos = mean(dias_ativos),
+    avaliacoes_medias = mean(avaliacoes),
+    tempo_assinatura_medio = mean(tempo_assinatura),
+    valor_plano_medio = mean(valor_plano),
+    .groups = "drop"
+  )
+
+descr_km
+```
+
+A partir da aplicação do k-means, obteve-se uma alocação com pouquíssima diferença da alocação feita pelos métodos hierárquicos: Uma observação do grupo de 120 observações foi alocado para o grupo com 140 observações, visto que o grupo com 300 observações manteve-se sem mudanças nas médias das variáveis. Essa conclusão reforça a robustez dos resultados obtidos.
+
+# Conclusões
+
+Diante dos resultados obtidos após a exploração de vários indícios que demonstraram, de forma positiva, a presença de clusters, bem como a quantidade existente de uma estrutura latente de 3 grupos, dividiu-se as observações da seguinte forma:
+
+-   usuários adultos com pouco consumo e planos baratos;
+
+-   usuários adultos fieis com alto consumo e planos mais caros;
+
+-   usuários fieis mais velhos com médio consumo e planos moderados.
+
+Diante disso, evidencia-se que os objetivos do relatório em realizar a análise de agrupamentos foi concluido.
+
+# Referências bibliográficas
+
+HAIR, Joseph F. et al. **Análise multivariada de dados**. Bookman editora, 2009.
